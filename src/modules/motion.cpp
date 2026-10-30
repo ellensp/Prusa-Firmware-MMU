@@ -8,6 +8,8 @@
 #ifdef __AVR__
 #include <avr/interrupt.h>
 #include <util/atomic.h>
+#elif defined(__STM32__)
+#include "../hal/timers.h"
 #else
 //#include "../hal/timers.h"
 #endif
@@ -26,6 +28,8 @@ static inline void IsrSetEnabled(bool state) {
         ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { TIMSK1 |= (1 << OCIE1A); }
     else
         ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { TIMSK1 &= ~(1 << OCIE1A); }
+#elif defined(__STM32__)
+    hal::timers::StepIsrSetEnabled(state);
 #endif
 }
 
@@ -37,6 +41,8 @@ static inline bool IsrDisable() {
         TIMSK1 &= ~(1 << OCIE1A);
     }
     return state;
+#elif defined(__STM32__)
+    return hal::timers::StepIsrDisable();
 #else
     return false;
 #endif
@@ -145,6 +151,10 @@ static inline void Isr() {
         // Idling: plan the next interrupt after 8ms from now.
         OCR1A = 0x4000;
     }
+#elif defined(__STM32__)
+    st_timer_t next = motion.Step();
+    // Idling: plan the next interrupt after 8ms from now.
+    hal::timers::SetStepInterval(next ? next : 0x4000);
 #endif
 }
 
@@ -169,6 +179,9 @@ void Init() {
     // Plan the first interrupt after 8ms from now.
     OCR1A = 0x4000;
     TCNT1 = 0;
+#elif defined(__STM32__)
+    // Plan the first interrupt after 8ms from now.
+    hal::timers::InitStepTimer(config::stepTimerFrequencyDivider, 0x4000);
 #endif
 
     // Enable interrupt
@@ -180,6 +193,11 @@ void Init() {
 
 #ifdef __AVR__
 ISR(TIMER1_COMPA_vect) {
+    modules::motion::Isr();
+}
+#elif defined(__STM32__)
+extern "C" void TIM3_IRQHandler() {
+    hal::timers::StepIsrAck();
     modules::motion::Isr();
 }
 #endif

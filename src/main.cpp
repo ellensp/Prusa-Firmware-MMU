@@ -8,8 +8,15 @@
 #include "hal/watchdog.h"
 
 #include "pins.h"
+#ifdef __AVR__
 #include <avr/interrupt.h>
 #include <util/delay.h>
+#else
+#include "hal/eeprom.h"
+#endif
+#ifdef MMU_DRIVER_TMC2209
+#include "hal/stm32/tmc_uart.h"
+#endif
 
 #include "modules/buttons.h"
 #include "modules/finda.h"
@@ -61,6 +68,9 @@ static void setup() {
 
     // @@TODO if both shift register and the UART are dead, we are sitting ducks :(
 
+#ifdef MMU_DRIVER_TMC2209
+    hal::tmc_uart::Init();
+#else
     hal::spi::SPI_InitTypeDef spi_conf = {
         .miso_pin = TMC2130_SPI_MISO_PIN,
         .mosi_pin = TMC2130_SPI_MOSI_PIN,
@@ -71,6 +81,7 @@ static void setup() {
         .cpol = 1,
     };
     hal::spi::Init(SPI0, &spi_conf);
+#endif
     ml::leds.SetMode(2, ml::green, ml::on);
     ml::leds.Step();
 
@@ -184,12 +195,23 @@ void loop() {
 
     application.Step();
 
+#ifdef __STM32__
+    // flash housekeeping stalls the CPU, do it while the motors stand still
+    if (mm::motion.QueueEmpty()) {
+        hal::eeprom::EEPROM::Maintain();
+    }
+#endif
+
     hal::watchdog::Reset();
 }
 
 int main() {
     setup();
+#ifdef __AVR__
     sei(); ///enable interrupts
+#else
+    asm volatile("cpsie i" ::: "memory"); ///enable interrupts
+#endif
     setup2();
     for (;;) {
         loop();

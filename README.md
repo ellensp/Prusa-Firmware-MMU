@@ -5,6 +5,8 @@ The currently supported models are:
 - Original Prusa MMU3
 - Original Prusa MMU2S
 
+This branch also builds for the BIGTREETECH MMU2-DIP controller (STM32F030), see [MMU2-DIP.md](MMU2-DIP.md).
+
 ## Introduction
 This is the new firmware for the Multi Material Unit (MMU).
 

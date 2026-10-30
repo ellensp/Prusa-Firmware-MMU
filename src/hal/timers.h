@@ -1,5 +1,9 @@
 /// @file timers.h
 #pragma once
+
+#ifdef __STM32__
+#include "stm32/timers.h"
+#else
 #include <avr/io.h>
 
 #define TIMER0 ((hal::timers::Tim8bit_TypeDef *)&TCCR0A)
@@ -32,3 +36,5 @@ void Configure_CTC8(const uint8_t timer, Tim8bit_TypeDef *const htim8, Tim8bit_C
 
 } // namespace cpu
 } // namespace hal
+
+#endif

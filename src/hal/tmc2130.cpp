@@ -90,7 +90,7 @@ bool __attribute__((noinline)) TMC2130::Init(const MotorParams &params, const Mo
     sg_filter_threshold = 2;
 
     gpio::Init(params.csPin, gpio::GPIO_InitTypeDef(gpio::Mode::output, gpio::Level::high));
-    gpio::Init(params.sgPin, gpio::GPIO_InitTypeDef(gpio::Mode::input, gpio::Pull::up));
+    gpio::Init(params.sgPin, gpio::GPIO_InitTypeDef(gpio::Mode::input, diagPull));
     gpio::Init(params.stepPin, gpio::GPIO_InitTypeDef(gpio::Mode::output, gpio::Level::low));
 
     /// check for compatible tmc driver (IOIN version field)
@@ -162,7 +162,7 @@ bool __attribute__((noinline)) TMC2130::Init(const MotorParams &params, const Mo
     static_assert(sizeof(ChopConfU::S) == 4);
     static_assert(sizeof(ChopConfU) == 4);
 
-    WriteRegister(params, Registers::CHOPCONF, ChopConfU(currents.vSense, params.mRes).dw);
+    WriteRegister(params, Registers::CHOPCONF, ChopConfU(ForDriver(currents).vSense, params.mRes).dw);
 
     /// apply currents
     SetCurrents(params, currents);
@@ -174,9 +174,16 @@ bool __attribute__((noinline)) TMC2130::Init(const MotorParams &params, const Mo
     SetSGTHRS(params);
     WriteRegister(params, Registers::TCOOLTHRS, config::tmc2130_coolStepThreshold);
 
+#ifdef MMU_BOARD_MMU2_DIP
+    /// Write stealth mode config and setup diag1 output - the only DIAG pin on a StepStick
+    constexpr uint32_t gconf = (uint32_t)(1U & 0x01U) << 2U // en_pwm_mode - always enabled since we can control it's effect with TPWMTHRS (0=only stealthchop, 0xFFFFF=only spreadcycle)
+        | (uint32_t)(1U & 0x01U) << 8U // diag1_stall
+        | (uint32_t)(1U & 0x01U) << 13U; // diag1_pushpull - active high
+#else
     /// Write stealth mode config and setup diag0 output
     constexpr uint32_t gconf = (uint32_t)(1U & 0x01U) << 2U // en_pwm_mode - always enabled since we can control it's effect with TPWMTHRS (0=only stealthchop, 0xFFFFF=only spreadcycle)
         | (uint32_t)(1U & 0x01U) << 7U; // diag0_stall - diag0 is open collector => active low with external pullups
+#endif
     WriteRegister(params, Registers::GCONF, gconf);
 
     /// stealthChop parameters
@@ -211,8 +218,8 @@ void TMC2130::SetBridgeOutput(const MotorParams &params, bool bOn) {
 }
 
 void TMC2130::SetCurrents(const MotorParams &params, const MotorCurrents &currents) {
-    uint8_t iHold = currents.iHold;
-    const uint8_t iRun = currents.iRun;
+    uint8_t iHold = ForDriver(currents).iHold;
+    const uint8_t iRun = ForDriver(currents).iRun;
 
     //    uint32_t ihold_irun = (uint32_t)(iHold & 0x1F) << 0 // ihold
     //        | (uint32_t)(iRun & 0x1F) << 8 // irun

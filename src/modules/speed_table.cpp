@@ -4,7 +4,8 @@
 namespace modules {
 namespace speed_table {
 
-#if F_CPU == 16000000
+// 48MHz on the MMU2-DIP divides down to the same 2MHz step timer as 16MHz on the AVR
+#if F_CPU == 16000000 || F_CPU == 48000000
 
 const st_timer_t speed_table_fast[256][2] PROGMEM = {
     { 62500, 55556 }, { 6944, 3268 }, { 3676, 1176 }, { 2500, 607 }, { 1893, 369 }, { 1524, 249 }, { 1275, 179 }, { 1096, 135 },

@@ -55,6 +55,54 @@ struct __attribute__((packed)) ErrorFlags {
     inline bool Good() const { return reset_flag == 0 && uv_cp == 0 && s2g == 0 && otpw == 0 && ot == 0; }
 };
 
+/// Current settings as written into the driver
+struct DriverCurrents {
+    bool vSense;
+    uint8_t iRun;
+    uint8_t iHold;
+};
+
+#ifdef MMU_BOARD_MMU2_DIP
+/// Sense resistors of the Original Prusa MMU board, derived from the current table in tmc2130.cpp (31 -> 530mA)
+static constexpr uint16_t prusaRSenseMilliOhm = 220;
+
+/// Rescale one current register value from the Original Prusa MMU board to the board's sense resistors.
+/// I = (cs + 1) / 32 * Vfs / (Rsense + 20mOhm) / sqrt(2), with Vfs = 180mV (vSense) or 320mV
+/// @returns cs + 1 in vSense units, which may exceed 32
+static constexpr uint16_t ScaledCurrent(bool vSense, uint8_t cs) {
+    return ((uint32_t)(cs + 1) * (vSense ? 180U : 320U) * (config::tmcRSenseMilliOhm + 20U) + 180U * (prusaRSenseMilliOhm + 20U) / 2)
+        / (180U * (prusaRSenseMilliOhm + 20U));
+}
+
+/// Register value for a scaled current
+static constexpr uint8_t CurrentRegister(bool vSense, uint16_t scaled) {
+    if (!vSense) // convert to the 320mV range
+        scaled = (scaled * 180U + 160U) / 320U;
+    return scaled == 0 ? 0 : (scaled > 32 ? 31 : scaled - 1);
+}
+
+/// @returns the currents for the drivers on this board
+static constexpr DriverCurrents ForDriver(const MotorCurrents &currents) {
+    // stay in the more precise 180mV range if the running current fits
+    const bool vSense = ScaledCurrent(currents.vSense, currents.iRun) <= 32;
+    return { vSense,
+        CurrentRegister(vSense, ScaledCurrent(currents.vSense, currents.iRun)),
+        CurrentRegister(vSense, ScaledCurrent(currents.vSense, currents.iHold)) };
+}
+
+/// The DIAG outputs are push-pull, active high (DIAG1 of the TMC2130, DIAG of the TMC2209)
+static constexpr gpio::Level stallLevel = gpio::Level::high;
+static constexpr gpio::Pull diagPull = gpio::Pull::down;
+#else
+static constexpr DriverCurrents ForDriver(const MotorCurrents &currents) {
+    return { currents.vSense, currents.iRun, currents.iHold };
+}
+
+/// DIAG0 is open collector, active low with external pullups
+static constexpr gpio::Level stallLevel = gpio::Level::low;
+static constexpr gpio::Pull diagPull = gpio::Pull::up;
+#endif
+
 /// TMC2130 interface - instances of this class are hidden in modules::motion::Motion::AxisData
 class TMC2130 {
 public:
@@ -63,7 +111,12 @@ public:
         /// General Configuration Registers
         GCONF = 0x00,
         GSTAT = 0x01,
+#ifdef MMU_DRIVER_TMC2209
+        IFCNT = 0x02,
+        IOIN = 0x06,
+#else
         IOIN = 0x04,
+#endif
 
         /// Velocity Dependent Driver Feature Control Register Set
         IHOLD_IRUN = 0x10,
@@ -71,6 +124,18 @@ public:
         TSTEP = 0x12,
         TPWMTHRS = 0x13,
         TCOOLTHRS = 0x14,
+#ifdef MMU_DRIVER_TMC2209
+        /// StallGuard Control Register Set
+        SGTHRS = 0x40,
+        SG_RESULT = 0x41,
+        COOLCONF = 0x42,
+
+        /// Motor Driver Registers
+        MSCNT = 0x6A,
+        CHOPCONF = 0x6C,
+        DRV_STATUS = 0x6F,
+        PWMCONF = 0x70,
+#else
         THIGH = 0x15,
 
         /// Motor Driver Registers
@@ -79,6 +144,7 @@ public:
         COOLCONF = 0x6D,
         DRV_STATUS = 0x6F,
         PWMCONF = 0x70,
+#endif
     };
 
     /// Constructor
@@ -137,7 +203,16 @@ public:
 
     /// Return SG state
     static inline bool SampleDiag(const MotorParams &params) {
-        return gpio::ReadPin(params.sgPin) == gpio::Level::low;
+        return gpio::ReadPin(params.sgPin) == stallLevel;
+    }
+
+    /// Translate an IOIN register value into the STEP (bit 0), DIR (bit 1) and enabled (bit 2) pin states
+    static inline uint8_t IOINToStepDirEna(uint32_t ioin) {
+#ifdef MMU_DRIVER_TMC2209
+        return ((ioin >> 7) & 1) | (((ioin >> 9) & 1) << 1) | ((ioin & 1) ? 0 : 4); // Note the logic inversion for ENA readback!
+#else
+        return (ioin & 0b11) | ((ioin & 0b10000) ? 0 : 4); // Note the logic inversion for ENA readback!
+#endif
     }
 
     inline bool Stalled() const {

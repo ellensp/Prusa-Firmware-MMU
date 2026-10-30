@@ -5,6 +5,8 @@
 
 #ifdef __AVR__
 #define SPI0 ((hal::spi::SPI_TypeDef *const) & SPCR)
+#elif defined(__STM32__)
+#define SPI0 ((hal::spi::SPI_TypeDef *)0x40013000U) // SPI1, defined here without CMSIS
 #endif
 
 namespace hal {
@@ -12,11 +14,15 @@ namespace hal {
 /// SPI interface
 namespace spi {
 
+#ifdef __STM32__
+struct SPI_TypeDef; // registers are only accessed in stm32/spi.cpp
+#else
 struct SPI_TypeDef {
     volatile uint8_t SPCRx;
     volatile uint8_t SPSRx;
     volatile uint8_t SPDRx;
 };
+#endif
 
 struct SPI_InitTypeDef {
     hal::gpio::GPIO_pin miso_pin;
@@ -32,7 +38,7 @@ void Init(SPI_TypeDef *const hspi, SPI_InitTypeDef *const conf);
 
 uint8_t TxRx(SPI_TypeDef *hspi, uint8_t val);
 
-#ifdef __AVR__
+#if defined(__AVR__) || defined(__STM32__)
 static SPI_TypeDef *const TmcSpiBus = SPI0;
 #else
 static SPI_TypeDef *const TmcSpiBus = nullptr;

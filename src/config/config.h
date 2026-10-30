@@ -41,6 +41,19 @@ static constexpr const uint16_t findaDebounceMs = 100;
 // Buttons setup
 static constexpr const uint8_t buttonCount = 3; ///< number of buttons currently supported
 static constexpr const uint16_t buttonsDebounceMs = 20; ///< tuned with a pack of highly trained monkeys :)
+#ifdef MMU_BOARD_MMU2_DIP
+static constexpr const uint16_t buttonADCLimits[buttonCount][2] = { { 0, 30 }, { 311, 559 }, { 601, 999 } };
+static constexpr const uint16_t buttonADCMaxValue = 4095; ///< used in unit tests
+static constexpr const uint8_t buttonsADCIndex = 2; ///< ADC_IN2 = PA2
+
+// VCC measurement setup
+static constexpr const uint8_t VCCADCIndex = 17; ///< ADC channel of the internal reference VREFINT
+static constexpr const uint16_t VCCADCThreshold = 1679; ///< ADC value for triggering the UV_VCC error
+/// We are measuring the internal reference against the 3.3V supply, VREFINT=1.23V (typical).
+/// To compute the threshold value: `VAL = 1.23 * 4095 / VDDA`
+/// So for VDDA=3.0V, you get VAL=1679
+static constexpr const uint8_t VCCADCReadCnt = 1; ///< Number of ADC reads to perform, only the last one being used
+#else
 static constexpr const uint16_t buttonADCLimits[buttonCount][2] = { { 0, 50 }, { 80, 100 }, { 160, 180 } };
 static constexpr const uint16_t buttonADCMaxValue = 1023; ///< used in unit tests
 static constexpr const uint8_t buttonsADCIndex = 5; ///< ADC index of buttons input
@@ -52,6 +65,7 @@ static constexpr const uint16_t VCCADCThreshold = 274; ///< ADC value for trigge
 /// To compute the threshold value: `VAL = 1125.3 / AVCC`
 /// So for AVCC=4.1V, you get VAL=274.46
 static constexpr const uint8_t VCCADCReadCnt = 10; ///< Number of ADC reads to perform, only the last one being used
+#endif
 
 // Motion and planning
 
@@ -68,7 +82,11 @@ static constexpr uint16_t minStepRate = 120;
 static constexpr uint8_t blockBufferSize = 4;
 
 /// Step timer frequency divider (F = F_CPU / divider)
+#ifdef MMU_BOARD_MMU2_DIP
+static constexpr uint8_t stepTimerFrequencyDivider = 24; ///< 48MHz / 24 = 2MHz, same as the AVR
+#else
 static constexpr uint8_t stepTimerFrequencyDivider = 8;
+#endif
 
 /// Smallest stepping ISR scheduling slice (T = 1 / (F_CPU / divider) * quantum)
 /// 25us is the max frequency interval per maxStepFrequency attainable for a single axis
@@ -108,16 +126,34 @@ static constexpr U_mm fsensorToNozzleAvoidGrindUnload = 20.0_mm;
 /// Check the state of FSensor after this amount of filament got (hopefully) pulled out while unloading.
 static constexpr U_mm fsensorUnloadCheckDistance = 40.0_mm;
 
+#ifdef MMU_BOARD_MMU2_DIP
+/// The MMU2-DIP's StepStick sockets turn all motors the other way round than the Original Prusa MMU board
+static constexpr bool dirInvert = true;
+/// Sense resistors of the StepStick drivers in milliohms, BIGTREETECH TMC2209 and TMC2130 modules use 110.
+/// The iRun/iHold values are register values for the Original Prusa MMU board, the drivers scale them to this.
+static constexpr uint16_t tmcRSenseMilliOhm = 110;
+#else
+static constexpr bool dirInvert = false;
+#endif
+
+#ifdef MMU_DRIVER_TMC2209
+/// TMC2209 StallGuard4 thresholds: 0..255, higher is more sensitive (stall when SG_RESULT <= 2 * SGTHRS)
+static constexpr int8_t pulleySGThrs = 0, selectorSGThrs = 50, idlerSGThrs = 20;
+#else
+/// TMC2130 StallGuard2 thresholds: -64..63, lower is more sensitive
+static constexpr int8_t pulleySGThrs = 8, selectorSGThrs = 3, idlerSGThrs = 7;
+#endif
+
 /// Begin: Pulley axis configuration
 static constexpr AxisConfig pulley = {
-    .dirOn = false,
+    .dirOn = false ^ dirInvert,
     .mRes = MRes_8,
     .iRun = 13, /// 230mA
     .iHold = 0, /// 17mA in SpreadCycle, freewheel in StealthChop
     .stealth = false,
     .stepsPerUnit = (200 * 8 / 19.147274),
     .stepsPerUnitReciprocal = 1 / ((200 * 8 / 19.147274)),
-    .sg_thrs = 8,
+    .sg_thrs = pulleySGThrs,
 };
 
 /// Pulley motion limits
@@ -136,14 +172,14 @@ static constexpr U_mm_s pulleySlowFeedrate = 20._mm_s;
 
 /// Begin: Selector configuration
 static constexpr AxisConfig selector = {
-    .dirOn = true,
+    .dirOn = true ^ dirInvert,
     .mRes = MRes_8,
     .iRun = 31, /// 530mA
     .iHold = 0, /// 17mA in SpreadCycle, freewheel in StealthChop
     .stealth = false,
     .stepsPerUnit = (200 * 8 / 8.),
     .stepsPerUnitReciprocal = 1 / ((200 * 8 / 8.)),
-    .sg_thrs = 3,
+    .sg_thrs = selectorSGThrs,
 };
 
 static constexpr uint8_t selectorCutIRun = 40; ///< 660mA
@@ -187,14 +223,14 @@ static constexpr U_mm_s selectorHomingFeedrate = 30._mm_s;
 
 /// Begin: Idler configuration
 static constexpr AxisConfig idler = {
-    .dirOn = true,
+    .dirOn = true ^ dirInvert,
     .mRes = MRes_16,
     .iRun = 31, /// 530mA
     .iHold = 5, /// 99mA - parked current
     .stealth = false,
     .stepsPerUnit = (200 * 16 / 360.),
     .stepsPerUnitReciprocal = 1 / ((200 * 16 / 360.)),
-    .sg_thrs = 7,
+    .sg_thrs = idlerSGThrs,
 };
 
 /// Idler motion limits

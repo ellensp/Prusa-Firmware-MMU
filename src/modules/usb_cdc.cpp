@@ -4,6 +4,26 @@
 #include "../hal/watchdog.h"
 #include "debug.h"
 
+#ifdef __STM32__
+
+// The MMU2-DIP has no native USB, its CH340 shares the USART with the printer
+namespace modules {
+namespace usb {
+
+CDC cdc;
+
+void CDC::Init() {
+}
+
+void CDC::Step() {
+}
+
+} // namespace usb
+
+} // namespace modules
+
+#else
+
 extern "C" {
 #include "lufa_config.h"
 #include "Descriptors.h"
@@ -116,3 +136,5 @@ void CDC::Step() {
 } // namespace usb
 
 } // namespace modules
+
+#endif

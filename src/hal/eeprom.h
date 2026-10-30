@@ -10,7 +10,7 @@ namespace eeprom {
 
 class EEPROM {
 public:
-#ifdef UNITTEST
+#if defined(UNITTEST) || defined(__STM32__)
     using addr_t = size_t;
 #else
     using addr_t = uint16_t;
@@ -31,7 +31,15 @@ public:
 
     /// @returns physical end address of EEPROM memory end
     /// TODO this is sad - the constexpr must be inline... find a way around in the future
+#ifdef __STM32__
+    constexpr static addr_t End() { return 1023; } // 1 KB emulated in flash
+
+    /// Housekeeping of the flash emulation. It may erase flash pages, which stalls the CPU
+    /// for tens of ms - only call it while the motors are idle.
+    static void Maintain();
+#else
     constexpr static addr_t End() { return 2048; }
+#endif
 };
 
 extern EEPROM eeprom;

@@ -1,5 +1,5 @@
 if(NOT CMAKE_CROSSCOMPILING)
   add_subdirectory(Catch2)
-else()
+elseif(NOT MMU_BOARD STREQUAL "MMU2_DIP")
   include(AddLufa.cmake)
 endif()

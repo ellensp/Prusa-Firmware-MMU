@@ -34,11 +34,11 @@ static inline uint8_t read_byte(const uint8_t *addr) {
 /// read a ptr from PROGMEM
 /// Introduced mainly for compatibility reasons with the unit tests
 /// and to hide the ugly reinterpret_casts.
-/// Returns a correctly typed pointer: a 16-bit on AVR, but a 64bit address on x86_64
+/// Returns a correctly typed pointer: a 16-bit on AVR, 32bit on ARM, but a 64bit address on x86_64
 template <typename RT>
 static inline RT read_ptr(const void *addr) {
 #ifndef __AVR__
-    return reinterpret_cast<RT>(*reinterpret_cast<const uint64_t *>(addr));
+    return reinterpret_cast<RT>(*reinterpret_cast<const uintptr_t *>(addr));
 #else
     return reinterpret_cast<RT>(pgm_read_ptr(addr));
 #endif

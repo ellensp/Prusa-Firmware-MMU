@@ -1,5 +1,9 @@
 /// @file usart.h
 #pragma once
+
+#ifdef __STM32__
+#include "stm32/usart.h"
+#else
 #include <inttypes.h>
 #include <avr/io.h>
 #include "gpio.h"
@@ -124,3 +128,5 @@ extern USART usart1;
 #define USART1 ((hal::usart::USART::USART_TypeDef *)&UCSR1A)
 
 namespace hu = hal::usart;
+
+#endif

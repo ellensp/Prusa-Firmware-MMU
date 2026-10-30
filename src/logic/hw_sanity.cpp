@@ -112,7 +112,7 @@ bool HWSanity::StepInner() {
             driver.SetEnabled(params, set_state & BIT_ENA);
             uint32_t drv_ioin = driver.ReadRegister(params, hal::tmc2130::TMC2130::Registers::IOIN);
             // Compose IOIN to look like set_state.
-            drv_ioin = (drv_ioin & 0b11) | ((drv_ioin & 0b10000) ? 0 : 4); // Note the logic inversion for ENA readback!
+            drv_ioin = TMC2130::IOINToStepDirEna(drv_ioin);
             uint8_t bit_errs = (drv_ioin ^ set_state);
             // Set the LEDs. Note RED is index 0 in the enum, so we want  the expression FALSE if there's an error.
             ml::leds.SetMode(0, static_cast<ml::Color>((bit_errs & BIT_STEP) == 0), ml::on);

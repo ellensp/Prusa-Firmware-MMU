@@ -41,9 +41,11 @@ static inline st_timer_t calc_timer(st_timer_t step_rate, uint8_t &step_loops) {
 
     st_timer_t timer; // calculated interval
 
-    if (step_rate < (F_CPU / 500000))
-        step_rate = (F_CPU / 500000);
-    step_rate -= (F_CPU / 500000); // Correct for minimal speed
+    // the tables are for the step timer frequency, F_CPU / 500000 on the AVR
+    constexpr st_timer_t minRate = F_CPU / config::stepTimerFrequencyDivider / 62500;
+    if (step_rate < minRate)
+        step_rate = minRate;
+    step_rate -= minRate; // Correct for minimal speed
     if (step_rate >= (8 * 256)) { // higher step rate
         const uint16_t *table_address = &speed_table_fast[(uint8_t)(step_rate >> 8)][0];
         uint8_t tmp_step_rate = (step_rate & 0x00ff);

@@ -1,4 +1,4 @@
-#ifndef UNITTEST
+#ifdef __AVR__
 #include <avr/pgmspace.h>
 #else
 #define PROGMEM /* */

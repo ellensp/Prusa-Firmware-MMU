@@ -42,9 +42,36 @@ set(CUSTOM_COMPILE_OPTIONS
     ""
     CACHE STRING "Allows adding custom C/C++ flags"
     )
+set(MMU_BOARD
+    "MM_CONTROL"
+    CACHE
+      STRING
+      "Target board: MM_CONTROL (Original Prusa MMU, ATmega32u4) or MMU2_DIP (BIGTREETECH MMU2-DIP, STM32F030C8)"
+    )
+set_property(CACHE MMU_BOARD PROPERTY STRINGS MM_CONTROL MMU2_DIP)
+set(MMU_DRIVER
+    "TMC2209"
+    CACHE STRING "Stepper drivers fitted to the MMU2-DIP: TMC2209 (UART) or TMC2130 (SPI)"
+    )
+set_property(CACHE MMU_DRIVER PROPERTY STRINGS TMC2209 TMC2130)
 
 # Resolve BUILD_NUMBER and PROJECT_VERSION_* variables
 resolve_version_variables()
+
+if(MMU_BOARD STREQUAL "MMU2_DIP")
+  if(NOT CMAKE_CROSSCOMPILING)
+    message(FATAL_ERROR "MMU_BOARD=MMU2_DIP needs -DCMAKE_TOOLCHAIN_FILE=cmake/ArmGcc.cmake")
+  endif()
+  if(NOT MMU_DRIVER MATCHES "^(TMC2209|TMC2130)$")
+    message(FATAL_ERROR "MMU_DRIVER must be TMC2209 or TMC2130, not '${MMU_DRIVER}'")
+  endif()
+  add_compile_definitions(
+    MMU_BOARD_MMU2_DIP __STM32__ STM32F030x8 F_CPU=48000000UL MMU_DRIVER_${MMU_DRIVER}
+    )
+  message(STATUS "Target board: BIGTREETECH MMU2-DIP with ${MMU_DRIVER} drivers")
+elseif(NOT MMU_BOARD STREQUAL "MM_CONTROL")
+  message(FATAL_ERROR "Unknown MMU_BOARD '${MMU_BOARD}'")
+endif()
 
 add_compile_definitions(
   PROJECT_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
@@ -59,7 +86,9 @@ add_compile_definitions(
 
 # Check GCC Version
 get_recommended_gcc_version(RECOMMENDED_TOOLCHAIN_VERSION)
-if(CMAKE_CROSSCOMPILING AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL
+if(MMU_BOARD STREQUAL "MMU2_DIP")
+  # any recent arm-none-eabi-gcc will do
+elseif(CMAKE_CROSSCOMPILING AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL
                             ${RECOMMENDED_TOOLCHAIN_VERSION}
    )
   message(WARNING "Recommended AVR toolchain is ${RECOMMENDED_TOOLCHAIN_VERSION}"
@@ -109,12 +138,18 @@ if(CMAKE_CROSSCOMPILING)
   set(CMAKE_C_FLAGS_DEBUG ${CMAKE_CXX_FLAGS_DEBUG})
   set(CMAKE_C_FLAGS_RELEASE ${CMAKE_CXX_FLAGS_RELEASE})
 
-  # mcu related settings: It would be nice to add "-mrelax" but due to some avr-gcc/linker bug it
-  # breaks functionality of the FW (LoadFilament stopped working and only return Finished) The bad
-  # news is that -mrelax was saving ~450B of CPU FLASH
-  set(MCU_FLAGS -mmcu=atmega32u4 -DF_CPU=16000000L)
-  add_compile_options(${MCU_FLAGS})
-  add_link_options(${MCU_FLAGS})
+  if(MMU_BOARD STREQUAL "MMU2_DIP")
+    set(MCU_FLAGS -mcpu=cortex-m0 -mthumb)
+    add_compile_options(${MCU_FLAGS})
+    add_link_options(${MCU_FLAGS} --specs=nano.specs --specs=nosys.specs -nostartfiles)
+  else()
+    # mcu related settings: It would be nice to add "-mrelax" but due to some avr-gcc/linker bug it
+    # breaks functionality of the FW (LoadFilament stopped working and only return Finished) The
+    # bad news is that -mrelax was saving ~450B of CPU FLASH
+    set(MCU_FLAGS -mmcu=atmega32u4 -DF_CPU=16000000L)
+    add_compile_options(${MCU_FLAGS})
+    add_link_options(${MCU_FLAGS})
+  endif()
 
   # disable some C++ language features
   add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fno-threadsafe-statics>)
@@ -158,7 +193,23 @@ add_executable(firmware)
 set_target_properties(firmware PROPERTIES CXX_STANDARD 17)
 set_target_properties(firmware PROPERTIES INTERPROCEDURAL_OPTIMIZATION True)
 
-if(CMAKE_CROSSCOMPILING)
+if(CMAKE_CROSSCOMPILING AND MMU_BOARD STREQUAL "MMU2_DIP")
+  set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/src/hal/stm32/stm32f030x8.ld)
+  target_link_options(firmware PUBLIC -Wl,-T,${LINKER_SCRIPT} -Wl,-Map=firmware.map)
+  add_link_dependency(firmware ${LINKER_SCRIPT})
+
+  set(DIP_FW_NAME "MMU2_DIP_${MMU_DRIVER}_FW${PROJECT_VERSION}${PROJECT_VERSION_SUFFIX_SHORT}")
+  add_custom_command(
+    TARGET firmware
+    POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} -O ihex firmware "${DIP_FW_NAME}.hex"
+    COMMAND ${CMAKE_OBJCOPY} -O binary firmware "${DIP_FW_NAME}.bin"
+    COMMAND ${CMAKE_OBJDUMP} --prefix ${CMAKE_SOURCE_DIR} -CSd firmware > firmware.asm
+    BYPRODUCTS "${DIP_FW_NAME}.hex" "${DIP_FW_NAME}.bin" firmware.asm
+    )
+  report_size(firmware)
+
+elseif(CMAKE_CROSSCOMPILING)
   # configure linker script
   set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/src/avr5.xn)
   target_link_options(firmware PUBLIC -Wl,-T,${LINKER_SCRIPT})
@@ -227,6 +278,9 @@ if(CMAKE_CROSSCOMPILING)
 endif()
 
 target_include_directories(firmware PRIVATE src lib)
+if(MMU_BOARD STREQUAL "MMU2_DIP")
+  target_include_directories(firmware PRIVATE lib/cmsis_stm32f0)
+endif()
 
 target_compile_options(firmware PRIVATE -Wdouble-promotion)
 
